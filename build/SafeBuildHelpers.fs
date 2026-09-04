@@ -61,15 +61,34 @@ module internal SafeBuildHelpers =
                     let args = c.Command.Arguments.ToStartInfo
                     print color $"{name}: {wd}> {exe} {args}" ""
 
+            let private restoreTerminalState () =
+                // Reset basic TTY state in case an interrupted child process leaves it broken.
+                try
+                    use procHandle =
+                        Diagnostics.Process.Start(
+                            Diagnostics.ProcessStartInfo(
+                                FileName = "stty",
+                                Arguments = "sane",
+                                UseShellExecute = false
+                            )
+                        )
+
+                    procHandle.WaitForExit(1000) |> ignore
+                with _ ->
+                    ()
+
             let run cs =
-                cs
-                |> Seq.toArray
-                |> Array.indexed
-                |> fun x ->
-                    printStarting x
-                    x
-                |> Array.map redirect
-                |> Array.Parallel.map Proc.run
+                try
+                    cs
+                    |> Seq.toArray
+                    |> Array.indexed
+                    |> fun x ->
+                        printStarting x
+                        x
+                    |> Array.map redirect
+                    |> Array.Parallel.map Proc.run
+                finally
+                    restoreTerminalState ()
 
     let createProcess exe args dir =
         // Use `fromRawCommand` rather than `fromRawCommandLine`, as its behaviour is less likely to be misunderstood.

@@ -103,6 +103,18 @@ module internal Targets =
     let init (definition: ProjectDefinition) =
         Target.initEnvironment ()
 
+        let buildRuntimeId = RuntimeMode.runtimeId definition.Specs.RuntimeMode
+
+        let withBuildRuntimeId command =
+            buildRuntimeId
+            |> Option.map (fun runtimeId -> sprintf "%s -r %s" command (RuntimeId.value runtimeId))
+            |> Option.defaultValue command
+
+        match buildRuntimeId with
+        | Some runtimeId when definition.Specs.RuntimeIds |> List.contains runtimeId |> not ->
+            failwithf "Build runtime %s is not supported." (RuntimeId.value runtimeId)
+        | _ -> ()
+
         Target.create "Info" (fun _ ->
             let separator sign = Trace.traceFAKE "%s" (String.replicate 69 sign)
 
@@ -207,7 +219,7 @@ module internal Targets =
 
         Target.create "Build" (fun _ ->
             definition.Sources.All
-            |> Seq.iter (Path.getDirectory >> Dotnet.runOrFail "build")
+            |> Seq.iter (Path.getDirectory >> Dotnet.runOrFail (withBuildRuntimeId "build"))
         )
 
         Target.create "Lint" <| skipOn "no-lint" (fun _ ->
@@ -224,7 +236,7 @@ module internal Targets =
             Target.create "Tests" (fun _ ->
                 if definition.Sources.Tests |> Seq.isEmpty
                 then Trace.tracefn "There are no tests yet."
-                else Dotnet.runOrFail "run" "tests"
+                else Dotnet.runOrFail (withBuildRuntimeId "run") "tests"
             )
 
             let zipRelease releaseDir runtimeIds =
@@ -259,7 +271,7 @@ module internal Targets =
                     !! "**/bin/**/*.nupkg"
                     |> Seq.iter (Shell.moveFile releaseDir)
 
-                | { Specs = ConsoleApplication { RuntimeIds = runtimeIds; ReleaseSource = releaseSource; ReleaseDir = releaseDir } } ->
+                | { Specs = ConsoleApplication { RuntimeIds = runtimeIds; ReleaseSource = releaseSource; ReleaseDir = releaseDir; PublishSingleFile = publishSingleFile } } ->
                     let releaseDir = Path.getFullName releaseDir
 
                     Trace.tracefn "\nClean previous releases"
@@ -283,7 +295,7 @@ module internal Targets =
                         yield! runtimeIds |> List.collect (RuntimeId.value >> fun runtimeId -> [project, runtimeId])
                     }
                     |> Seq.iter (fun (project, runtimeId) ->
-                        sprintf "publish -c Release /p:PublishSingleFile=true -o %s/%s --self-contained -r %s %s" releaseDir runtimeId runtimeId project
+                        sprintf "publish -c Release /p:PublishSingleFile=%b -o %s/%s --self-contained -r %s %s" publishSingleFile releaseDir runtimeId runtimeId project
                         |> Dotnet.runInRootOrFail
                     )
 

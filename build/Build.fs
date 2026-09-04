@@ -1,5 +1,5 @@
 // ========================================================================================================
-// === F# / Project fake build ==================================================================== 1.6.0 =
+// === F# / Project fake build ==================================================================== 1.8.0 =
 // --------------------------------------------------------------------------------------------------------
 // Options:
 //  - no-clean   - disables clean of dirs in the first step (required on CI)
@@ -18,26 +18,27 @@ open Utils
 let main args =
     args |> Args.init
 
+    let spec =
+        Spec.defaultConsoleApplication [
+            OSXArm64
+            Windows
+            Linux
+        ]
+        |> Spec.mapConsoleApplication (fun spec -> {
+            spec with
+                RuntimeMode = RuntimeMode.AutoDetect
+                PublishSingleFile = false
+        })
+
     Targets.init {
         Project = {
             Name = "TUC.Console"
             Summary = "Console application for .tuc commands."
             Git = Git.init ()
         }
-        Specs =
-            Spec.defaultConsoleApplication [
-                OSX
-                Windows
-                Linux
-            ]
+        Specs = spec
     }
 
-    Target.create "PlantUml" (fun _ ->
-        match PlantUml.ensure () with
-        | PlantUml.Verified version -> Trace.tracefn "[PlantUML] Using verified v%s JAR." version
-        | PlantUml.Downloaded version -> Trace.tracefn "[PlantUML] Downloaded and verified v%s JAR." version
-    )
-
-    "PlantUml" ==> "Build" |> ignore
+    PlantUml.init spec.RuntimeIds
 
     args |> Args.run
